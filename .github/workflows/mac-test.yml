@@ -1,0 +1,63 @@
+# Installs .ek on a real Mac in the cloud, checks it works end to end, then uninstalls it.
+# Runs whenever test/ek-mac.zip changes, or by hand from the Actions tab.
+name: Mac test
+on:
+  push: { paths: ['test/ek-mac.zip', '.github/workflows/mac-test.yml'] }
+  workflow_dispatch:
+
+jobs:
+  mac:
+    strategy:
+      fail-fast: false
+      matrix: { os: [macos-15, macos-13] }   # Apple Silicon, Intel
+    runs-on: ${{ matrix.os }}
+    env: { EK_CI: '1' }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unzip like Archive Utility would
+        run: |
+          ditto -x -k test/ek-mac.zip ~/Downloads/
+          test -x ~/Downloads/ek/"Install .ek.command" || { echo "Install .ek.command lost its run bit"; exit 1; }
+
+      - name: Install
+        run: ~/Downloads/ek/"Install .ek.command"
+
+      - name: The helper is running under launchd
+        run: |
+          launchctl print "gui/$(id -u)/net.ek.helper" | grep -E 'state = running'
+          curl -fsS http://127.0.0.1:7333/ek.pac | grep 'PROXY 127.0.0.1:7333'
+
+      - name: .ek addresses go to the helper
+        run: scutil --proxy | tee /dev/stderr | grep 'ProxyAutoConfigURLString : http://127.0.0.1:7333/ek.pac'
+
+      - name: The certificate is trusted by macOS
+        run: |
+          DIR="$HOME/Library/Application Support/ek"
+          security verify-cert -c "$DIR/ca.crt" -p ssl
+          security find-certificate -c '.ek local authority' /Library/Keychains/System.keychain >/dev/null
+
+      - name: A real .ek site loads through the helper
+        run: |
+          DIR="$HOME/Library/Application Support/ek"
+          curl -fsS --proxy http://127.0.0.1:7333 --cacert "$DIR/ca.crt" https://news.ek/ -o page.html
+          grep -q '.ek is open.' page.html || { head -c 2000 page.html; exit 1; }
+
+      - name: Chrome opens https://news.ek on its own (system proxy + keychain)
+        run: |
+          CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          "$CHROME" --headless=new --disable-gpu --user-data-dir="$RUNNER_TEMP/chrome" \
+            --virtual-time-budget=15000 --dump-dom https://news.ek/ > dom.html 2> chrome.log || true
+          grep -q '.ek is open.' dom.html || { echo "--- dom"; head -c 3000 dom.html; echo "--- chrome log"; tail -50 chrome.log; exit 1; }
+
+      - name: Helper log
+        if: always()
+        run: cat "$HOME/Library/Application Support/ek/helper.log" 2>/dev/null || echo "(no log)"
+
+      - name: Uninstall
+        run: |
+          "$HOME/Library/Application Support/ek/Uninstall .ek.command"
+          ! launchctl print "gui/$(id -u)/net.ek.helper" 2>/dev/null
+          ! test -e "$HOME/Library/Application Support/ek"
+          ! security find-certificate -c '.ek local authority' /Library/Keychains/System.keychain 2>/dev/null
+          ! scutil --proxy | grep -q 7333

@@ -43,7 +43,7 @@ jobs:
           DIR="$HOME/Library/Application Support/ek"
           curl -fsS --proxy http://127.0.0.1:7333 --cacert "$DIR/ca.crt" https://news.ek/ -o page.html
           # The helper answers with the .ek app, which then draws the site in the browser.
-          grep -q '--signal:#2B4CFF' page.html || { head -c 2000 page.html; exit 1; }
+          grep -qF -e '--signal:#2B4CFF' page.html || { head -c 2000 page.html; exit 1; }
 
       - name: Chrome opens https://news.ek on its own (system proxy + keychain)
         run: |
@@ -51,7 +51,7 @@ jobs:
           "$CHROME" --headless=new --disable-gpu --user-data-dir="$RUNNER_TEMP/chrome" \
             --virtual-time-budget=15000 --dump-dom https://news.ek/ > dom.html 2> chrome.log || true
           # chrome-error means the proxy or the certificate failed; the .ek app means both worked.
-          grep -q '--signal:#2B4CFF' dom.html || { echo "--- dom"; head -c 3000 dom.html; echo "--- chrome log"; tail -50 chrome.log; exit 1; }
+          grep -qF -e '--signal:#2B4CFF' dom.html || { echo "--- dom"; head -c 3000 dom.html; echo "--- chrome log"; tail -50 chrome.log; exit 1; }
 
       - name: Helper log
         if: always()

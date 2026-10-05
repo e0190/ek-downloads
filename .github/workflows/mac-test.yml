@@ -11,6 +11,7 @@ jobs:
       fail-fast: false
       matrix: { os: [macos-latest, macos-15-intel] }   # Apple Silicon, Intel
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     env: { EK_CI: '1' }
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +49,9 @@ jobs:
       - name: Chrome opens https://news.ek on its own (system proxy + keychain)
         run: |
           CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-          "$CHROME" --headless=new --disable-gpu --user-data-dir="$RUNNER_TEMP/chrome" \
+          # Chrome on test Macs waits on the keychain and never quits: fake keychain + a time limit.
+          chrome() { perl -e 'alarm shift; exec @ARGV' 40 "$CHROME" --use-mock-keychain --password-store=basic "$@"; }
+          chrome --headless=new --disable-gpu --user-data-dir="$RUNNER_TEMP/chrome" \
             --virtual-time-budget=15000 --dump-dom https://news.ek/ > dom.html 2> chrome.log || true
           # chrome-error means the proxy or the certificate failed; the .ek app means both worked.
           grep -qF -e '--signal:#2B4CFF' dom.html || { echo "--- dom"; head -c 3000 dom.html; echo "--- chrome log"; tail -50 chrome.log; exit 1; }
@@ -58,14 +61,17 @@ jobs:
         run: |
           mkdir -p shots
           CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          # Chrome on test Macs waits on the keychain and never quits: fake keychain + a time limit.
+          chrome() { perl -e 'alarm shift; exec @ARGV' 40 "$CHROME" --use-mock-keychain --password-store=basic "$@"; }
           for site in news.ek ek; do
-            "$CHROME" --headless=new --disable-gpu --user-data-dir="$RUNNER_TEMP/shot" --hide-scrollbars               --window-size=1280,900 --virtual-time-budget=15000 --screenshot="shots/$site.png" "https://$site/" 2>/dev/null || true
+            chrome --headless=new --disable-gpu --user-data-dir="$RUNNER_TEMP/shot" --hide-scrollbars               --window-size=1280,900 --virtual-time-budget=15000 --screenshot="shots/$site.png" "https://$site/" 2>/dev/null || true
           done
           # The whole Mac screen, with a normal Chrome window open on news.ek
-          "$CHROME" --user-data-dir="$RUNNER_TEMP/screen" --no-first-run --no-default-browser-check https://news.ek/ >/dev/null 2>&1 &
+          chrome --user-data-dir="$RUNNER_TEMP/screen" --no-first-run --no-default-browser-check https://news.ek/ >/dev/null 2>&1 &
           sleep 15
           screencapture -x shots/whole-mac-screen.png || true
           kill %1 2>/dev/null || true
+          pkill -f 'Google Chrome' || true
 
       - uses: actions/upload-artifact@v4
         if: always()

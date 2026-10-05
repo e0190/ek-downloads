@@ -1,0 +1,103 @@
+# Installs .ek on Ubuntu in the cloud, checks it works end to end, takes screenshots, then uninstalls it.
+# Runs whenever test/ek-linux.zip changes, or by hand from the Actions tab.
+name: Linux test
+on:
+  push: { paths: ['test/ek-linux.zip', '.github/workflows/linux-test.yml'] }
+  workflow_dispatch:
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix: { os: [ubuntu-latest, ubuntu-24.04-arm] }   # Intel/AMD, ARM
+    runs-on: ${{ matrix.os }}
+    env:
+      XDG_CURRENT_DESKTOP: GNOME
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make it like a desktop (GNOME settings, a user session, a screen)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dconf-service dconf-cli gsettings-desktop-schemas xvfb imagemagick >/dev/null
+          sudo loginctl enable-linger "$USER"
+          for _ in $(seq 50); do [ -S "/run/user/$(id -u)/bus" ] && break; sleep 0.2; done
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus" >> "$GITHUB_ENV"
+          if ! command -v google-chrome >/dev/null; then
+            sudo apt-get install -y -qq chromium-browser >/dev/null 2>&1 || sudo snap install chromium
+          fi
+
+      - name: Unzip
+        run: |
+          unzip -q test/ek-linux.zip -d ~/Downloads
+          test -x ~/Downloads/ek/install.sh || { echo "install.sh lost its run bit"; exit 1; }
+
+      - name: Install (certutil is missing on purpose, so the installer has to get it)
+        run: ~/Downloads/ek/install.sh
+
+      - name: The helper is running under systemd
+        run: |
+          systemctl --user is-active ek-helper
+          systemctl --user is-enabled ek-helper
+          curl -fsS http://127.0.0.1:7333/ek.pac | grep 'PROXY 127.0.0.1:7333'
+
+      - name: .ek addresses go to the helper
+        run: |
+          gsettings get org.gnome.system.proxy mode | grep auto
+          gsettings get org.gnome.system.proxy autoconfig-url | grep 'http://127.0.0.1:7333/ek.pac'
+
+      - name: The certificate is in Chrome's store
+        run: certutil -d "sql:$HOME/.pki/nssdb" -L | grep '.ek local authority'
+
+      - name: A real .ek site loads through the helper
+        run: |
+          curl -fsS --proxy http://127.0.0.1:7333 --cacert ~/.local/share/ek/ca.crt https://news.ek/ -o page.html
+          grep -qF -e '--signal:#2B4CFF' page.html || { head -c 2000 page.html; exit 1; }
+
+      - name: Chrome opens https://news.ek on its own (GNOME proxy + its certificate store)
+        run: |
+          CHROME="$(command -v google-chrome || command -v chromium-browser || command -v chromium)"
+          echo "Using $CHROME"
+          "$CHROME" --headless=new --no-sandbox --disable-gpu --user-data-dir="$RUNNER_TEMP/chrome" \
+            --virtual-time-budget=15000 --dump-dom https://news.ek/ > dom.html 2> chrome.log || true
+          grep -qF -e '--signal:#2B4CFF' dom.html || { echo "--- dom"; head -c 3000 dom.html; echo "--- chrome log"; tail -50 chrome.log; exit 1; }
+
+      - name: The helper comes back if it crashes
+        run: |
+          pkill -9 -f '.local/share/ek/server.mjs'
+          sleep 3
+          curl -fsS http://127.0.0.1:7333/ek.pac >/dev/null && echo "restarted by systemd"
+
+      - name: Screenshots
+        if: always()
+        run: |
+          mkdir -p shots
+          CHROME="$(command -v google-chrome || command -v chromium-browser || command -v chromium)"
+          for site in news.ek ek; do
+            "$CHROME" --headless=new --no-sandbox --disable-gpu --user-data-dir="$RUNNER_TEMP/shot" --hide-scrollbars \
+              --window-size=1280,900 --virtual-time-budget=15000 --screenshot="shots/$site.png" "https://$site/" 2>/dev/null || true
+          done
+          # The whole screen, with a normal Chrome window open on news.ek
+          Xvfb :99 -screen 0 1280x900x24 & sleep 2
+          DISPLAY=:99 "$CHROME" --no-sandbox --user-data-dir="$RUNNER_TEMP/screen" --no-first-run --start-maximized https://news.ek/ >/dev/null 2>&1 &
+          sleep 15
+          DISPLAY=:99 import -window root shots/whole-screen.png || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-${{ matrix.os }}
+          path: shots/
+
+      - name: Helper log
+        if: always()
+        run: cat ~/.local/share/ek/helper.log 2>/dev/null || echo "(no log)"
+
+      - name: Uninstall
+        run: |
+          ~/.local/share/ek/uninstall.sh -y
+          ! systemctl --user is-active ek-helper
+          ! test -e ~/.local/share/ek
+          ! certutil -d "sql:$HOME/.pki/nssdb" -L | grep -q '.ek local authority'
+          gsettings get org.gnome.system.proxy mode | grep none

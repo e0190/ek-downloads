@@ -53,6 +53,26 @@ jobs:
           # chrome-error means the proxy or the certificate failed; the .ek app means both worked.
           grep -qF -e '--signal:#2B4CFF' dom.html || { echo "--- dom"; head -c 3000 dom.html; echo "--- chrome log"; tail -50 chrome.log; exit 1; }
 
+      - name: Screenshots
+        if: always()
+        run: |
+          mkdir -p shots
+          CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          for site in news.ek ek; do
+            "$CHROME" --headless=new --disable-gpu --user-data-dir="$RUNNER_TEMP/shot" --hide-scrollbars               --window-size=1280,900 --virtual-time-budget=15000 --screenshot="shots/$site.png" "https://$site/" 2>/dev/null || true
+          done
+          # The whole Mac screen, with a normal Chrome window open on news.ek
+          "$CHROME" --user-data-dir="$RUNNER_TEMP/screen" --no-first-run --no-default-browser-check https://news.ek/ >/dev/null 2>&1 &
+          sleep 15
+          screencapture -x shots/whole-mac-screen.png || true
+          kill %1 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-${{ matrix.os }}
+          path: shots/
+
       - name: Helper log
         if: always()
         run: cat "$HOME/Library/Application Support/ek/helper.log" 2>/dev/null || echo "(no log)"

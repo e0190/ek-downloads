@@ -27,6 +27,9 @@ jobs:
           if ! command -v google-chrome >/dev/null; then
             sudo apt-get install -y -qq chromium-browser >/dev/null 2>&1 || sudo snap install chromium
           fi
+          # Like a real user: the browser has been opened before .ek is installed.
+          CHROME="$(command -v google-chrome || command -v chromium-browser || command -v chromium)"
+          "$CHROME" --headless=new --no-sandbox --disable-gpu about:blank --dump-dom >/dev/null 2>&1 || true
 
       - name: Unzip
         run: |
@@ -47,8 +50,10 @@ jobs:
           gsettings get org.gnome.system.proxy mode | grep auto
           gsettings get org.gnome.system.proxy autoconfig-url | grep 'http://127.0.0.1:7333/ek.pac'
 
-      - name: The certificate is in Chrome's store
-        run: certutil -d "sql:$HOME/.pki/nssdb" -L | grep '.ek local authority'
+      - name: The certificate is in the browser's store
+        run: |
+          certutil -d "sql:$HOME/.pki/nssdb" -L | grep '.ek local authority'
+          if [ -d ~/snap/chromium/current ]; then certutil -d "sql:$HOME/snap/chromium/current/.pki/nssdb" -L | grep '.ek local authority'; fi
 
       - name: A real .ek site loads through the helper
         run: |

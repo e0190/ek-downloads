@@ -51,10 +51,11 @@ jobs:
             $p = Start-Process $exe $argv -PassThru
             if (-not $p.WaitForExit(60000)) { $p.Kill() }
           }
-          Shot $ff "-headless -profile `"$p`" --window-size=1280,900 --screenshot `"$PWDshotsirefox-news.ek.png`" https://news.ek/"
+          $out = "$PWD\shots"
+          Shot $ff "-headless -profile `"$p`" --window-size=1280,900 --screenshot `"$out\firefox-news.ek.png`" https://news.ek/"
           Get-Process firefox -ErrorAction SilentlyContinue | Stop-Process -Force
-          Shot "C:Program FilesGoogleChromeApplicationchrome.exe" "--headless=new --disable-gpu --user-data-dir=`"$env:RUNNER_TEMPchrome`" --window-size=1280,900 --virtual-time-budget=15000 --screenshot=`"$PWDshotschrome-news.ek.png`" https://news.ek/"
-          Shot "C:Program Files (x86)MicrosoftEdgeApplicationmsedge.exe" "--headless=new --disable-gpu --user-data-dir=`"$env:RUNNER_TEMPedge`" --window-size=1280,900 --virtual-time-budget=15000 --screenshot=`"$PWDshotsedge-news.ek.png`" https://news.ek/"
+          Shot "C:\Program Files\Google\Chrome\Application\chrome.exe" "--headless=new --disable-gpu --user-data-dir=`"$env:RUNNER_TEMP\chrome`" --window-size=1280,900 --virtual-time-budget=15000 --screenshot=`"$out\chrome-news.ek.png`" https://news.ek/"
+          Shot "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" "--headless=new --disable-gpu --user-data-dir=`"$env:RUNNER_TEMP\edge`" --window-size=1280,900 --virtual-time-budget=15000 --screenshot=`"$out\edge-news.ek.png`" https://news.ek/"
           Get-ChildItem shots
 
       - uses: actions/upload-artifact@v4

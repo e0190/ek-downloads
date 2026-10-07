@@ -9,6 +9,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v4
       - name: Get the test build
         run: |
           gh release download ci -R ${{ github.repository }} -p ek-setup.zip -D $env:RUNNER_TEMP
@@ -57,6 +58,13 @@ jobs:
           Shot "C:\Program Files\Google\Chrome\Application\chrome.exe" "--headless=new --disable-gpu --user-data-dir=`"$env:RUNNER_TEMP\chrome`" --window-size=1280,900 --virtual-time-budget=15000 --screenshot=`"$out\chrome-news.ek.png`" https://news.ek/"
           Shot "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" "--headless=new --disable-gpu --user-data-dir=`"$env:RUNNER_TEMP\edge`" --window-size=1280,900 --virtual-time-budget=15000 --screenshot=`"$out\edge-news.ek.png`" https://news.ek/"
           Get-ChildItem shots
+
+      - name: Firefox, waited, with its errors
+        if: always()
+        run: |
+          npm i --no-save --silent playwright
+          npx playwright install firefox
+          node test/firefox-check.mjs
 
       - uses: actions/upload-artifact@v4
         if: always()

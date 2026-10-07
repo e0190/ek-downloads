@@ -85,7 +85,7 @@ jobs:
 
       - name: The helper set up Firefox (settings + certificate)
         run: |
-          P="$(ls -d ~/.mozilla/firefox/*ektest* ~/snap/firefox/common/.mozilla/firefox/*ektest* 2>/dev/null | head -1)"
+          P="$(ls -d ~/.config/mozilla/firefox/*ektest* ~/.mozilla/firefox/*ektest* ~/snap/firefox/common/.mozilla/firefox/*ektest* 2>/dev/null | head -1)"
           cat "$P/user.js"
           grep -q domainsuffixwhitelist.ek "$P/user.js"
           certutil -d "sql:$P" -L | grep ".ek local authority"
@@ -123,6 +123,6 @@ jobs:
           ! test -e ~/.local/share/ek
           ! certutil -d "sql:$HOME/.pki/nssdb" -L | grep -q '.ek local authority'
           gsettings get org.gnome.system.proxy mode | grep none
-          P="$(ls -d ~/.mozilla/firefox/*ektest* ~/snap/firefox/common/.mozilla/firefox/*ektest* 2>/dev/null | head -1)"
+          P="$(ls -d ~/.config/mozilla/firefox/*ektest* ~/.mozilla/firefox/*ektest* ~/snap/firefox/common/.mozilla/firefox/*ektest* 2>/dev/null | head -1)"
           ! grep -q ".ek" "$P/user.js"
           ! certutil -d "sql:$P" -L | grep -q ".ek local authority"

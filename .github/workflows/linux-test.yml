@@ -37,7 +37,8 @@ jobs:
           firefox --headless -CreateProfile ektest
           # Firefox makes its certificate store on first run
           timeout 25 firefox --headless -P ektest --screenshot "$RUNNER_TEMP/first.png" about:blank || true
-          ls ~/.mozilla/firefox/*ektest* ~/snap/firefox/common/.mozilla/firefox/*ektest* 2>/dev/null | head
+          readlink -f "$(command -v firefox)"; snap list firefox 2>/dev/null || true
+          find ~ -name profiles.ini 2>/dev/null; find ~ -maxdepth 6 -type d -name "*ektest*" 2>/dev/null
 
       - name: Unzip
         run: |

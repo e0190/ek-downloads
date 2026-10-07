@@ -47,12 +47,14 @@ jobs:
           New-Item -ItemType Directory -Force shots | Out-Null
           $ff = "C:\Program Files\Mozilla Firefox\firefox.exe"
           $p = (Get-ChildItem "$env:APPDATA\Mozilla\Firefox\Profiles" -Directory | Where-Object Name -like '*ektest*').FullName
-          $j = Start-Job { param($ff, $p, $out) & $ff -headless -profile $p --window-size=1280,900 --screenshot $out "https://news.ek/" } -ArgumentList $ff, $p, "$PWD\shots\firefox-news.ek.png"
-          Wait-Job $j -Timeout 60 | Out-Null; Get-Process firefox -ErrorAction SilentlyContinue | Stop-Process -Force
-          foreach ($b in @(@('chrome', 'C:\Program Files\Google\Chrome\Application\chrome.exe'), @('edge', 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'))) {
-            $j = Start-Job { param($exe, $out, $dir) & $exe --headless=new --disable-gpu "--user-data-dir=$dir" --window-size=1280,900 --virtual-time-budget=15000 "--screenshot=$out" "https://news.ek/" } -ArgumentList $b[1], "$PWD\shots\$($b[0])-news.ek.png", "$env:RUNNER_TEMP\$($b[0])"
-            Wait-Job $j -Timeout 60 | Out-Null
+          function Shot($exe, $argv) {
+            $p = Start-Process $exe $argv -PassThru
+            if (-not $p.WaitForExit(60000)) { $p.Kill() }
           }
+          Shot $ff "-headless -profile `"$p`" --window-size=1280,900 --screenshot `"$PWDshotsirefox-news.ek.png`" https://news.ek/"
+          Get-Process firefox -ErrorAction SilentlyContinue | Stop-Process -Force
+          Shot "C:Program FilesGoogleChromeApplicationchrome.exe" "--headless=new --disable-gpu --user-data-dir=`"$env:RUNNER_TEMPchrome`" --window-size=1280,900 --virtual-time-budget=15000 --screenshot=`"$PWDshotschrome-news.ek.png`" https://news.ek/"
+          Shot "C:Program Files (x86)MicrosoftEdgeApplicationmsedge.exe" "--headless=new --disable-gpu --user-data-dir=`"$env:RUNNER_TEMPedge`" --window-size=1280,900 --virtual-time-budget=15000 --screenshot=`"$PWDshotsedge-news.ek.png`" https://news.ek/"
           Get-ChildItem shots
 
       - uses: actions/upload-artifact@v4

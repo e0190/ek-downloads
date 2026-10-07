@@ -21,6 +21,12 @@ jobs:
           ditto -x -k test/ek-mac.zip ~/Downloads/
           test -x ~/Downloads/ek/"Install .ek.command" || { echo "Install .ek.command lost its run bit"; exit 1; }
 
+      - name: Firefox profile (like a person who already uses Firefox)
+        run: |
+          FF="/Applications/Firefox.app/Contents/MacOS/firefox"
+          test -x "$FF" || brew install --cask firefox
+          "$FF" --headless -CreateProfile ektest
+
       - name: Install
         run: ~/Downloads/ek/"Install .ek.command"
 
@@ -72,6 +78,14 @@ jobs:
           screencapture -x shots/whole-mac-screen.png || true
           kill %1 2>/dev/null || true
           pkill -f 'Google Chrome' || true
+
+      - name: Firefox
+        if: always()
+        run: |
+          P="$(ls -d "$HOME/Library/Application Support/Firefox/Profiles/"*ektest* | head -1)"
+          cat "$P/user.js"
+          ( perl -e 'alarm 40; exec @ARGV' /Applications/Firefox.app/Contents/MacOS/firefox --headless --profile "$P"               --window-size=1280,900 --screenshot "$PWD/shots/firefox-news.ek.png" https://news.ek/ ) || true
+          grep -q domainsuffixwhitelist.ek "$P/user.js"
 
       - uses: actions/upload-artifact@v4
         if: always()

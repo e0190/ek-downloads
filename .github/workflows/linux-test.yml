@@ -31,6 +31,14 @@ jobs:
           CHROME="$(command -v google-chrome || command -v chromium-browser || command -v chromium)"
           "$CHROME" --headless=new --no-sandbox --disable-gpu about:blank --dump-dom >/dev/null 2>&1 || true
 
+      - name: Firefox profile (like a person who already uses Firefox)
+        run: |
+          command -v firefox || sudo apt-get install -y -qq firefox >/dev/null
+          firefox --headless -CreateProfile ektest
+          # Firefox makes its certificate store on first run
+          timeout 25 firefox --headless -P ektest --screenshot "$RUNNER_TEMP/first.png" about:blank || true
+          ls ~/.mozilla/firefox/*ektest* ~/snap/firefox/common/.mozilla/firefox/*ektest* 2>/dev/null | head
+
       - name: Unzip
         run: |
           unzip -q test/ek-linux.zip -d ~/Downloads
@@ -74,10 +82,18 @@ jobs:
           sleep 3
           curl -fsS http://127.0.0.1:7333/ek.pac >/dev/null && echo "restarted by systemd"
 
+      - name: The helper set up Firefox (settings + certificate)
+        run: |
+          P="$(ls -d ~/.mozilla/firefox/*ektest* ~/snap/firefox/common/.mozilla/firefox/*ektest* 2>/dev/null | head -1)"
+          cat "$P/user.js"
+          grep -q domainsuffixwhitelist.ek "$P/user.js"
+          certutil -d "sql:$P" -L | grep ".ek local authority"
+
       - name: Screenshots
         if: always()
         run: |
           mkdir -p shots
+          timeout 40 firefox --headless -P ektest --window-size=1280,900 --screenshot "$PWD/shots/firefox-news.ek.png" https://news.ek/ || true
           CHROME="$(command -v google-chrome || command -v chromium-browser || command -v chromium)"
           for site in news.ek ek; do
             "$CHROME" --headless=new --no-sandbox --disable-gpu --user-data-dir="$RUNNER_TEMP/shot" --hide-scrollbars \
@@ -106,3 +122,6 @@ jobs:
           ! test -e ~/.local/share/ek
           ! certutil -d "sql:$HOME/.pki/nssdb" -L | grep -q '.ek local authority'
           gsettings get org.gnome.system.proxy mode | grep none
+          P="$(ls -d ~/.mozilla/firefox/*ektest* ~/snap/firefox/common/.mozilla/firefox/*ektest* 2>/dev/null | head -1)"
+          ! grep -q ".ek" "$P/user.js"
+          ! certutil -d "sql:$P" -L | grep -q ".ek local authority"

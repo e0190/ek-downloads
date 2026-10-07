@@ -1,0 +1,72 @@
+# Installs .ek on Windows in the cloud (the same steps ek-setup.exe takes, without
+# its window), then opens https://news.ek in Firefox, Chrome and Edge.
+# Uses the test build on the "ci" release. Run by hand from the Actions tab.
+name: Windows test
+on: workflow_dispatch
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Get the test build
+        run: |
+          gh release download ci -R ${{ github.repository }} -p ek-setup.zip -D $env:RUNNER_TEMP
+          Expand-Archive "$env:RUNNER_TEMP\ek-setup.zip" "$env:RUNNER_TEMP\ek"
+        env: { GH_TOKEN: '${{ github.token }}' }
+
+      - name: Make a Firefox profile first (like a person who already uses Firefox)
+        run: |
+          $ff = "C:\Program Files\Mozilla Firefox\firefox.exe"
+          & $ff -headless -CreateProfile "ektest" | Out-Null
+          Start-Sleep 3
+          Get-Content "$env:APPDATA\Mozilla\Firefox\profiles.ini"
+
+      - name: Install (what setup.ps1 does)
+        run: |
+          $Src = "$env:RUNNER_TEMP\ek\setup"; $Dir = "$env:LOCALAPPDATA\ek-helper"; $Port = 7333
+          New-Item -ItemType Directory -Force $Dir | Out-Null
+          foreach ($f in 'server.mjs','certs.mjs','account.mjs','net.mjs','firefox.mjs','package.json','app.html','ek.ico','ek-helper.exe','uninstall.ps1') { Copy-Item (Join-Path $Src $f) $Dir -Force }
+          foreach ($d in 'runtime','node_modules','extension') { Copy-Item (Join-Path $Src $d) $Dir -Recurse -Force }
+          $ca = & "$Dir\runtime\node.exe" "$Dir\server.mjs" --init-ca
+          certutil -f -addstore Root "$ca" | Out-Null
+          Set-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' AutoConfigURL "http://127.0.0.1:$Port/ek.pac"
+          Start-Process "$Dir\ek-helper.exe"
+          for ($i = 0; $i -lt 100; $i++) { try { Invoke-WebRequest "http://127.0.0.1:$Port/ek.pac" -UseBasicParsing | Out-Null; break } catch { Start-Sleep -Milliseconds 200 } }
+          Start-Sleep 3
+
+      - name: The helper set up Firefox
+        run: |
+          $p = Get-ChildItem "$env:APPDATA\Mozilla\Firefox\Profiles" -Directory | Where-Object Name -like '*ektest*'
+          Get-Content (Join-Path $p.FullName 'user.js')
+          if (-not (Select-String -Path (Join-Path $p.FullName 'user.js') -Pattern 'domainsuffixwhitelist.ek')) { throw 'Firefox was not set up' }
+
+      - name: Screenshots
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $ff = "C:\Program Files\Mozilla Firefox\firefox.exe"
+          $p = (Get-ChildItem "$env:APPDATA\Mozilla\Firefox\Profiles" -Directory | Where-Object Name -like '*ektest*').FullName
+          $j = Start-Job { param($ff, $p, $out) & $ff -headless -profile $p --window-size=1280,900 --screenshot $out "https://news.ek/" } -ArgumentList $ff, $p, "$PWD\shots\firefox-news.ek.png"
+          Wait-Job $j -Timeout 60 | Out-Null; Get-Process firefox -ErrorAction SilentlyContinue | Stop-Process -Force
+          foreach ($b in @(@('chrome', 'C:\Program Files\Google\Chrome\Application\chrome.exe'), @('edge', 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'))) {
+            $j = Start-Job { param($exe, $out, $dir) & $exe --headless=new --disable-gpu "--user-data-dir=$dir" --window-size=1280,900 --virtual-time-budget=15000 "--screenshot=$out" "https://news.ek/" } -ArgumentList $b[1], "$PWD\shots\$($b[0])-news.ek.png", "$env:RUNNER_TEMP\$($b[0])"
+            Wait-Job $j -Timeout 60 | Out-Null
+          }
+          Get-ChildItem shots
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: screenshots-windows, path: shots/ }
+
+      - name: Helper log
+        if: always()
+        run: Get-Content "$env:LOCALAPPDATA\ek-helper\helper.log" -ErrorAction SilentlyContinue
+
+      - name: Uninstall takes .ek out of Firefox
+        run: |
+          $Dir = "$env:LOCALAPPDATA\ek-helper"
+          & "$Dir\runtime\node.exe" "$Dir\server.mjs" --firefox-off
+          $p = (Get-ChildItem "$env:APPDATA\Mozilla\Firefox\Profiles" -Directory | Where-Object Name -like '*ektest*').FullName
+          if (Select-String -Path "$p\user.js" -Pattern '\.ek' -Quiet) { throw 'still in user.js' }
+          'removed'
